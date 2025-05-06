@@ -6,12 +6,12 @@ import openai
 import asyncio
 import socket
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import defaultdict
 
 # Set page config for wider sidebar - MUST be first Streamlit command
 st.set_page_config(
-    page_title="Whatsapp AI bot interaction before May",
+    page_title="Whatsapp bot from May",
     page_icon="💬",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -70,7 +70,7 @@ def calculate_metrics(query_result):
     
     # Process all messages
     for match in query_result:
-        if match.metadata and not match.metadata.get("timestamp"):  # Only process messages without timestamp
+        if match.metadata and match.metadata.get("timestamp"):  # Only process messages with a metadata timestamp
             user_name = match.metadata.get("user_name")
             room_id = match.metadata.get("room_id")
             sender_type = match.metadata.get("sender_type", "user")
@@ -151,7 +151,7 @@ try:
     index = pc.Index(pinecone_index_name)
 
     # Title
-    st.title("Whatsapp AI bot interaction")
+    st.title("whatsapp AI interaction from May")
 
     # Get all unique user names
     progress_bar = st.progress(0)
@@ -163,7 +163,6 @@ try:
         query_result = index.query(
             vector=[0.0]*1536,
             namespace="messages",
-            filter={"timestamp": {"$exists": False}},  # Only get messages without timestamp
             top_k=1000,
             include_metadata=True
         )
@@ -177,15 +176,43 @@ try:
         else:
             messages = query_result.matches
 
-        # Calculate metrics directly from messages (no need to filter again)
-        metrics = calculate_metrics(messages)
-        
-        # Display metrics in sidebar
+        # --- 1. Add Date Range Picker to Sidebar (before metrics calculation) ---
         with st.sidebar:
             # Display date at the top
             current_date = datetime.now().strftime("%d/%m/%Y")
-            st.header(f"📅 {current_date}")
-            
+            st.header(f" {current_date}")
+
+            # Date range picker
+            st.header("🗓️ Filter by Date Range")
+            default_start = datetime(2025, 5, 1).date()  # Start from May 1, 2025
+            default_end = datetime.now().date()
+            start_date, end_date = st.date_input(
+                "Select date range",
+                [default_start, default_end]
+            )
+            # Ensure start_date and end_date are always set
+            if isinstance(start_date, list) or isinstance(start_date, tuple):
+                start_date, end_date = start_date
+
+        # --- 2. Helper function to filter messages by date range ---
+        def is_in_range(ts, start, end):
+            try:
+                ts_dt = datetime.fromisoformat(ts)
+                return start <= ts_dt.date() <= end
+            except Exception:
+                return False
+
+        # --- 3. Filter messages by date range ---
+        filtered_messages = [
+            m for m in messages
+            if m.metadata and m.metadata.get("timestamp") and is_in_range(m.metadata.get("timestamp"), start_date, end_date)
+        ]
+
+        # --- 4. Calculate metrics from filtered messages ---
+        metrics = calculate_metrics(filtered_messages)
+        
+        # Display metrics in sidebar
+        with st.sidebar:
             # Overview Metrics Section
             st.header("📊 Overview Metrics")
             col1, col2 = st.columns(2)
@@ -255,9 +282,9 @@ try:
             with col2:
                 st.metric("Agent Messages", metrics["agent_messages"])
         
-        # Extract unique user names from messages without timestamps
+        # --- 6. Extract unique user names from filtered messages ---
         user_names = set()
-        for match in messages:
+        for match in filtered_messages:
             if match.metadata and "user_name" in match.metadata:
                 user_names.add(match.metadata["user_name"])
         
@@ -269,7 +296,7 @@ try:
         st.subheader(f"Total Users: {len(user_names)}")
         
         if not user_names:
-            st.error("No users found in the database")
+            st.warning("No data found for the selected date range. Please adjust the date range or check your data.")
         else:
             # Display user selection dropdown
             selected_user = st.selectbox(
@@ -281,23 +308,15 @@ try:
             if selected_user:
                 with st.spinner("Fetching messages..."):
                     try:
-                        # Run the query for selected user
-                        query_result = index.query(
-                            vector=[0.0]*1536,
-                            namespace="messages",
-                            filter={
-                                "$and": [
-                                    {"user_name": {"$eq": selected_user}},
-                                    {"timestamp": {"$exists": False}}  # Only get messages without timestamp
-                                ]
-                            },
-                            top_k=1000,
-                            include_metadata=True
-                        )
+                        # Filter messages for selected user and date range
+                        user_filtered_messages = [
+                            m for m in filtered_messages
+                            if m.metadata and m.metadata.get("user_name") == selected_user
+                        ]
 
                         # Get unique room_ids
                         room_ids = set()
-                        for match in query_result.matches:
+                        for match in user_filtered_messages:
                             if match.metadata and "room_id" in match.metadata:
                                 room_ids.add(match.metadata["room_id"])
 
@@ -312,9 +331,9 @@ try:
                             )
 
                             if selected_room:
-                                # Filter messages for selected room
+                                # Filter messages for selected room and date range
                                 room_messages = [
-                                    m.metadata for m in query_result.matches
+                                    m.metadata for m in user_filtered_messages
                                     if m.metadata and m.metadata.get("room_id") == selected_room
                                 ]
                                 
