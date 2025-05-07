@@ -150,6 +150,9 @@ try:
     pc = Pinecone(api_key=pinecone_api_key)
     index = pc.Index(pinecone_index_name)
 
+    # Title
+    st.title("whatsapp AI interaction from May")
+
     # Get all unique user names
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -278,10 +281,98 @@ try:
                 st.metric("User Messages", metrics["user_messages"])
             with col2:
                 st.metric("Agent Messages", metrics["agent_messages"])
-
+        
+        # --- 6. Extract unique user names from filtered messages ---
+        user_names = set()
+        for match in filtered_messages:
+            if match.metadata and "user_name" in match.metadata:
+                user_names.add(match.metadata["user_name"])
+        
+        user_names = sorted(list(user_names))
         progress_bar.progress(100)
         status_text.text("Ready!")
         
+        # Display total number of users
+        st.subheader(f"Total Users: {len(user_names)}")
+        
+        if not user_names:
+            st.warning("No data found for the selected date range. Please adjust the date range or check your data.")
+        else:
+            # Display user selection dropdown
+            selected_user = st.selectbox(
+                "Select a user to view conversations:",
+                options=user_names,
+                format_func=lambda x: f"User: {x}"
+            )
+
+            if selected_user:
+                with st.spinner("Fetching messages..."):
+                    try:
+                        # Filter messages for selected user and date range
+                        user_filtered_messages = [
+                            m for m in filtered_messages
+                            if m.metadata and m.metadata.get("user_name") == selected_user
+                        ]
+
+                        # Get unique room_ids
+                        room_ids = set()
+                        for match in user_filtered_messages:
+                            if match.metadata and "room_id" in match.metadata:
+                                room_ids.add(match.metadata["room_id"])
+
+                        if room_ids:
+                            st.subheader(f"Found conversations in {len(room_ids)} rooms:")
+                            
+                            # Display room selection
+                            selected_room = st.selectbox(
+                                "Select a room to view messages:",
+                                options=list(room_ids),
+                                format_func=lambda x: f"Room: {x}"
+                            )
+
+                            if selected_room:
+                                # Filter messages for selected room and date range
+                                room_messages = [
+                                    m.metadata for m in user_filtered_messages
+                                    if m.metadata and m.metadata.get("room_id") == selected_room
+                                ]
+                                
+                                # Sort messages by timestamp
+                                sorted_messages = sorted(room_messages, key=lambda x: x.get("timestamp", ""))
+                                
+                                # Create a container for the conversation
+                                conversation_container = st.container()
+                                
+                                with conversation_container:
+                                    st.write("---")  # Add a separator before the conversation
+                                    
+                                    # Display messages in chronological order
+                                    for msg in sorted_messages:
+                                        role = msg.get("sender_type", "user")
+                                        content = msg.get("text", "")
+                                        timestamp = msg.get("timestamp", "")
+                                        formatted_time = format_timestamp(timestamp)
+                                        
+                                        # Create columns for message layout
+                                        col1, col2 = st.columns([1, 4])
+                                        
+                                        with col1:
+                                            st.write(formatted_time)
+                                        
+                                        with col2:
+                                            if role == "user":
+                                                st.write("**User:**")
+                                                st.chat_message("user").write(content)
+                                            else:
+                                                st.write("**Agent:**")
+                                                st.chat_message("assistant").write(content)
+                                        
+                                        st.write("---")  # Add a separator between messages
+                                    
+                        else:
+                            st.info("No conversations found for this user.")
+                    except Exception as e:
+                        st.error(f"Error during query: {str(e)}")
     except Exception as e:
         st.error(f"Error fetching user list: {str(e)}")
     finally:
