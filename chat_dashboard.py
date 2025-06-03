@@ -24,8 +24,8 @@ load_dotenv()
 st.markdown("""
     <style>
     [data-testid="stSidebar"] {
-        min-width: 500px;
-        max-width: 600px;
+        min-width: 600px;
+        max-width: 800px;
     }
     .stMetric {
         margin-bottom: 0.5rem;
@@ -64,8 +64,15 @@ def calculate_metrics(query_result):
     single_message_users = 0  # Count users with only one message
     multiple_message_users = 0  # Count users with 2 or more messages
     multiple_message_total = 0  # Total messages from users with multiple messages
+    
+    # Original response tracking
     single_ya_users = 0  # Users with single "ya" message
     single_tidak_users = 0  # Users with single "tidak" message
+    
+    # New response tracking
+    single_iya_mau_dong_users = 0  # Users with single "Iya, mau dong" message
+    single_nanti_aja_deh_users = 0  # Users with single "Nanti aja deh" message
+    
     other_single_messages = []  # List of other single messages
     
     # Process all messages
@@ -96,10 +103,17 @@ def calculate_metrics(query_result):
                     match.metadata.get("user_name") == user and 
                     match.metadata.get("sender_type") == "user"):
                     text = match.metadata.get("text", "").strip().lower()
+                    
+                    # Check original responses
                     if text == "ya":
                         single_ya_users += 1
                     elif text == "tidak":
                         single_tidak_users += 1
+                    # Check new responses
+                    elif text == "iya, mau dong":
+                        single_iya_mau_dong_users += 1
+                    elif text == "nanti aja deh":
+                        single_nanti_aja_deh_users += 1
                     else:
                         other_single_messages.append({
                             "user": user,
@@ -117,8 +131,14 @@ def calculate_metrics(query_result):
     single_message_percentage = (single_message_users / total_users * 100) if total_users > 0 else 0
     multiple_message_percentage = (multiple_message_users / total_users * 100) if total_users > 0 else 0
     avg_messages_multiple_users = multiple_message_total / multiple_message_users if multiple_message_users > 0 else 0
+    
+    # Original response percentages
     single_ya_percentage = (single_ya_users / single_message_users * 100) if single_message_users > 0 else 0
     single_tidak_percentage = (single_tidak_users / single_message_users * 100) if single_message_users > 0 else 0
+    
+    # New response percentages
+    single_iya_mau_dong_percentage = (single_iya_mau_dong_users / single_message_users * 100) if single_message_users > 0 else 0
+    single_nanti_aja_deh_percentage = (single_nanti_aja_deh_users / single_message_users * 100) if single_message_users > 0 else 0
     
     return {
         "total_users": total_users,
@@ -132,10 +152,16 @@ def calculate_metrics(query_result):
         "multiple_message_users": multiple_message_users,
         "multiple_message_percentage": round(multiple_message_percentage, 1),
         "avg_messages_multiple_users": round(avg_messages_multiple_users, 2),
+        # Original response metrics
         "single_ya_users": single_ya_users,
         "single_ya_percentage": round(single_ya_percentage, 1),
         "single_tidak_users": single_tidak_users,
         "single_tidak_percentage": round(single_tidak_percentage, 1),
+        # New response metrics
+        "single_iya_mau_dong_users": single_iya_mau_dong_users,
+        "single_iya_mau_dong_percentage": round(single_iya_mau_dong_percentage, 1),
+        "single_nanti_aja_deh_users": single_nanti_aja_deh_users,
+        "single_nanti_aja_deh_percentage": round(single_nanti_aja_deh_percentage, 1),
         "other_single_messages": other_single_messages,
         "multiple_message_total": multiple_message_total
     }
@@ -160,7 +186,7 @@ try:
         query_result = index.query(
             vector=[0.0]*1536,
             namespace="messages",
-            top_k=1000,
+            top_k=2000,
             include_metadata=True
         )
         
@@ -232,17 +258,37 @@ try:
                     metrics["single_message_users"],
                     f"{metrics['single_message_percentage']}%"
                 )
-            with col2:
+
+            # Create two columns for the original and new metrics
+            st.subheader("Response Analysis")
+            left_col, right_col = st.columns(2)
+
+            # Left column - Original responses
+            with left_col:
+                st.markdown("**Original Responses**")
                 st.metric(
                     "Users saying 'Ya'", 
                     metrics["single_ya_users"],
                     f"{metrics['single_ya_percentage']}%"
                 )
-            with col3:
                 st.metric(
                     "Users saying 'Tidak'", 
                     metrics["single_tidak_users"],
                     f"{metrics['single_tidak_percentage']}%"
+                )
+
+            # Right column - New responses
+            with right_col:
+                st.markdown("**Alternative Responses**")
+                st.metric(
+                    "Users saying 'Iya, mau dong'", 
+                    metrics["single_iya_mau_dong_users"],
+                    f"{metrics['single_iya_mau_dong_percentage']}%"
+                )
+                st.metric(
+                    "Users saying 'Nanti aja deh'", 
+                    metrics["single_nanti_aja_deh_users"],
+                    f"{metrics['single_nanti_aja_deh_percentage']}%"
                 )
             
             # Show other single messages if any
